@@ -152,6 +152,24 @@ body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:1
 .loupe::before,.loupe::after{content:"";position:absolute;background:var(--hi);opacity:.85}
 .loupe::before{left:50%;top:30%;bottom:30%;width:1px}
 .loupe::after{top:50%;left:30%;right:30%;height:1px}
+/* set-up mode (the team only) */
+.setupbtn{border-color:var(--hi)!important;color:var(--hi)!important}
+.setupbtn[aria-pressed="true"]{background:var(--hi)!important;color:var(--hi-ink)!important}
+.setpanel{top:64px;bottom:auto;left:12px;right:auto;margin:0;width:min(440px,calc(100% - 24px));max-height:calc(100% - 80px)}
+.setpanel h4{margin:14px 0 4px;font-size:13px;display:flex;justify-content:space-between;gap:8px}
+.setpanel h4 small{font-weight:400;opacity:.7}
+.sunote{margin:2px 0 6px;font-size:12px;opacity:.75;line-height:1.35}
+.surow{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
+.sustops{margin:4px 0;padding-left:0;list-style:none;display:grid;gap:4px}
+.sustops li{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:12px;border:1px solid var(--line);border-radius:6px;padding:4px 6px}
+.sustops li span{flex:1 1 90px}
+.sustops li button{min-height:30px;padding:4px 8px;font-size:12px}
+.sunames{display:grid;gap:4px}
+.sunames label{display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:center;font-size:12px}
+.sunames input{font:inherit;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);min-width:0}
+.sufoot{margin-top:14px}
+.finpanel button.go{background:var(--hi);border-color:var(--hi);color:var(--hi-ink)}
+.sumsg{font-size:12px;margin:6px 0 0;min-height:1em}
 /* a tapped cabinet / part: hide it, or try another finish on it */
 .acts{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .acts button,.finpanel button{font:500 13px var(--display);padding:7px 12px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer;min-height:36px}
@@ -207,6 +225,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:1
     <button id="vSection" aria-pressed="false" title="Cut through the model to see inside">Section</button>
     <button id="vWalk" aria-pressed="false" title="Stand in the room at eye height">Walk</button>
     <button id="vTour" title="A guided walk past the joinery">Tour</button>
+    <button id="vSetup" class="setupbtn" aria-pressed="false" hidden title="Set the preview up for the client">Setup</button>
   </div>
   <div class="hint" id="hint"></div>
   <div class="loupe" id="loupe" hidden aria-hidden="true"></div>
@@ -247,6 +266,26 @@ body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:1
     <div class="fpscope" id="fpScope" role="radiogroup" aria-label="Apply to"></div>
     <div class="fpgrid" id="fpGrid"></div>
     <div class="fprow"><label>Custom colour <input type="color" id="fpColor"></label><button type="button" id="fpReset">Back to original</button></div>
+  </section>
+  <section class="finpanel setpanel" id="setpanel" hidden aria-label="Set up for the client">
+    <div class="mh"><b>Set up for the client · <span id="suRoom"></span></b><button type="button" id="suDone">Close</button></div>
+    <p class="sunote">What you set here is what the client sees when they open the link. It is kept on this computer until you save the settings file.</p>
+    <h4>Opening view <small id="suView"></small></h4>
+    <div class="surow"><button type="button" id="suViewSet">Use this view</button><button type="button" id="suViewClr">Whole room</button></div>
+    <h4>Tour <small id="suTour"></small></h4>
+    <p class="sunote" id="suTourN"></p>
+    <ol class="sustops" id="suStops"></ol>
+    <div class="surow"><button type="button" id="suAdd">Add this spot as a stop</button><button type="button" id="suCopy">Start from the automatic stops</button><button type="button" id="suAuto">Automatic</button><button type="button" id="suPlay">Play tour</button></div>
+    <p class="sunote">Stops are stood in: press Walk, go to the spot and look where the client should look. Doors you open are the ones the tour opens there (none open: the cabinets in front of you).</p>
+    <h4>Left out <small id="suHidden"></small></h4>
+    <p class="sunote">Tap a part → Hide part / Hide cabinet. Hidden here = not in the client's preview at all.</p>
+    <div class="surow"><button type="button" id="suShowAll">Put everything back</button></div>
+    <h4>Finishes and Show / hide <small id="suFin"></small></h4>
+    <p class="sunote">Change finishes (whole room or one part) and the Show / hide switches as usual - the client starts from them, and can still change them.</p>
+    <h4>Material names</h4>
+    <div class="sunames" id="suNames"></div>
+    <div class="surow sufoot"><button type="button" class="go" id="suSave">Save settings file</button><button type="button" id="suReset">Clear this room</button></div>
+    <p class="sumsg" id="suMsg" aria-live="polite"></p>
   </section>
   <section class="sheet" id="sheet" hidden aria-label="Show or hide">
     <div class="sheethead"><b id="sheetTitle">Show / hide</b><button type="button" id="sheetClose" aria-label="Close">Done</button></div>
@@ -302,7 +341,7 @@ const HASH = (() => {
   }
   return o;
 })();
-const BOOT = {id: HASH.id, secret: HASH.secret, room: HASH.room, view: HASH.view, base: location.origin + location.pathname};
+const BOOT = {id: HASH.id, secret: HASH.secret, room: HASH.room, view: HASH.view, base: location.origin + location.pathname + (/[?&]setup\b/.test(location.search) ? '?setup' : '')}   /* (set-up: room tabs stay in set-up) */;
 BOOT.link = (room, view) => BOOT.base + '#' + BOOT.id + '.' + BOOT.secret + (room ? '&r=' + room : '') + (view ? '&c=' + view.join(',') : '');
 // another room (tab) or a comment's link opened in this tab: start again with it
 addEventListener('hashchange', () => location.reload());
@@ -387,6 +426,18 @@ $('lockForm').addEventListener('submit', async ev => {
 });
 // ---- the 3D view of one job ----
 function start(JOB){
+// ---- set-up for the client (?setup on the link): the team tidies the preview - tour stops, the opening view,
+// parts left out, starting finishes and show/hide, material names - and saves a "preview settings.json".
+// The sync seals it into the job (no new revision); clients then open the preview set up that way.
+const SETUP = /[?&]setup\b/.test(location.search);
+const SETUP_KEY = 'cp-setup-' + BOOT.id;
+let setupDraft = {rooms: {}};
+if (SETUP) try { const d = JSON.parse(localStorage.getItem(SETUP_KEY) || 'null'); if (d && d.rooms) setupDraft = d; } catch (_) {}
+const SEALED = (BOOT.index && BOOT.index.settings && BOOT.index.settings.rooms) || {};
+const SET = (SETUP && setupDraft.rooms[BOOT.roomName]) || SEALED[BOOT.roomName] || {};
+var setupReady = false, customStops = SET.tour && SET.tour.length ? SET.tour.slice() : null, setupView = SET.view || null;
+const setNames = Object.assign({}, SET.names || {});
+for (const m of JOB.materials || []){ m.orig = m.name; if (m.name && setNames[m.name]) m.name = setNames[m.name]; }
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -399,7 +450,9 @@ const TEX_MAX = PHONE ? 1024 : 2048;
 // coplanar faces 2 mm apart instead.)
 // (Desktops keep normal depth: enough precision, and the ambient occlusion pass needs it.)
 const renderer = new THREE.WebGLRenderer({antialias:true, logarithmicDepthBuffer:PHONE, precision:'highp', powerPreference: PHONE ? 'low-power' : 'high-performance'});
-renderer.setPixelRatio(Math.min(devicePixelRatio, PHONE ? 1.5 : 2));
+// (sharpness: capped. 2x on a high-res screen is four times the pixels for very little gain; the loading screen
+// then checks this computer's speed and steps quality down until it is smooth - see quality())
+renderer.setPixelRatio(Math.min(devicePixelRatio, PHONE ? 1.25 : 1.5));
 stage.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 10, 50000);
@@ -484,13 +537,48 @@ function prepTick(){
   if (texPending > 0 || !window.__cpBuilt) return;
   prepDone = true;
   setTimeout(() => {
+    try { rebuildBatches(); } catch (e){ console.log('batching failed', e); }
     try { renderer.compile(scene, camera); } catch (_) {}
+    try { quality(); } catch (e){ console.log('quality check failed', e); }
     shadowDirty = true; markDirty();
     $('prepBar').style.width = '100%';
     requestAnimationFrame(() => requestAnimationFrame(() => { $('prep').classList.add('fade'); setTimeout(() => { $('prep').hidden = true; }, 400); }));
   }, 30);
 }
 setTimeout(() => { if (!prepDone){ texPending = 0; prepTick(); } }, 25000);   // never wait forever on a slow picture
+// Speed check while the loading screen is up: time real frames (the worst case - a door moving, so the shadows
+// redraw too) and step quality down until a frame takes under ~25 ms (40 a second): soft shading off, then normal
+// sharpness, then smaller shadows, then no shadows, then lower sharpness. ?q=high|mid|low forces a level.
+let qualityLevel = 'high';
+function quality(){
+  const force = (location.search.match(/[?&]q=(high|mid|low)\b/) || [])[1];
+  if (navigator.webdriver && !force && !/[?&]bench\b/.test(location.search)) return;
+  const gl = renderer.getContext(), px = new Uint8Array(4);
+  const time = n => { const t0 = performance.now();
+    for (let i = 0; i < n; i++){ renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera); if (ao && aoOn) drawAO(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); }
+    return (performance.now() - t0) / n; };
+  const remat = () => scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
+  const steps = [
+    ['no soft shading', () => { if (!ao || !aoOn) return false; aoOn = false; }],
+    ['normal sharpness', () => { if (renderer.getPixelRatio() <= 1) return false; renderer.setPixelRatio(1); resize(); aoSize(); }],
+    ['small shadows', () => { if (sun.shadow.mapSize.x <= 1024) return false; sun.shadow.mapSize.set(1024, 1024); if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; } }],
+    ['no shadows', () => { if (!renderer.shadowMap.enabled) return false; renderer.shadowMap.enabled = false; sun.castShadow = false; remat(); }],
+    ['low sharpness', () => { if (renderer.getPixelRatio() <= 0.75) return false; renderer.setPixelRatio(0.75); resize(); aoSize(); }],
+  ];
+  if (force){
+    const n = {high: 0, mid: 2, low: 5}[force];
+    for (let i = 0; i < n; i++) steps[i][1]();
+    qualityLevel = force; console.log('quality: ' + force + ' (forced)'); return;
+  }
+  time(1);                                          // (first frame uploads everything: not counted)
+  let ms = time(3), i = 0; const log = [Math.round(ms)];
+  while (ms > 25 && i < steps.length){
+    if (steps[i][1]() !== false){ ms = time(3); log.push(steps[i][0] + ' ' + Math.round(ms)); }
+    i++;
+  }
+  qualityLevel = i === 0 ? 'high' : i <= 2 ? 'mid' : 'low';
+  console.log('quality: ' + qualityLevel + ' (ms per frame: ' + log.join(', ') + ')');
+}
 function texture(file){
   if (!texCache[file]){
     texUsers[file] = []; texPending++; texTotal++;
@@ -827,6 +915,22 @@ const TYPE_NAMES = {base: 'Base cabinets', upper: 'Upper / overhead cabinets', t
   panel: 'Panels & fillers', bench: 'Benchtops & splashbacks'};
 const hiddenTypes = new Set(), hiddenMats = new Set(), hiddenParts = new Set();
 let hideHardware = false, hideWalls = false, hideRoom = false;
+if (SET.show){ (SET.show.types || []).forEach(t => hiddenTypes.add(t)); (SET.show.mats || []).forEach(n => hiddenMats.add(setNames[n] || n));
+  hideWalls = !!SET.show.walls; hideRoom = !!SET.show.room; hideHardware = !!SET.show.hw; }
+// a part saved by the set-up: its place in the list, plus the middle of its box to find it again if the list moved
+function refOf(x){
+  const h = !parts.includes(x), list = h ? hardware : parts, i = list.indexOf(x); if (i < 0) return null;
+  const c = x.box.getCenter(new THREE.Vector3());
+  return {k: h ? 'h' : 'p', i, c: [Math.round(c.x), Math.round(c.y), Math.round(c.z)]};
+}
+function findRef(r){
+  if (!r || !r.c) return null;
+  const list = r.k === 'h' ? hardware : parts, at = new THREE.Vector3().fromArray(r.c);
+  const near = x => x && x.box.getCenter(new THREE.Vector3()).distanceTo(at) < 6;
+  return near(list[r.i]) ? list[r.i] : list.find(near) || null;
+}
+// left out for the client (set-up: just hidden, so it can be brought back)
+for (const r of SET.removed || []){ const x = findRef(r); if (!x) continue; if (SETUP) hiddenParts.add(x); else x.removed = true; }
 const isSheet = mi => !!((JOB.materials || [])[mi] || {}).sheet;
 const matName = mi => ((JOB.materials || [])[mi] || {}).name || 'Other finishes';
 function typeOf(g){ return (CABS[g] || {}).t || 'base'; }
@@ -925,19 +1029,23 @@ function finishOptions(){
   return opts;
 }
 const finishChoice = {};
-const FIN_KEY = 'cp-finish-' + BOOT.id + '-' + BOOT.room;
-try { Object.assign(finishChoice, JSON.parse(localStorage.getItem(FIN_KEY) || '{}')); } catch (_) {}
+const FIN_KEY = (SETUP ? 'cp-setup-fin-' : 'cp-finish-') + BOOT.id + '-' + BOOT.room;
+// the set-up's finishes are the starting point; a client's own choices (on their device) go over them
+for (const [l, v] of Object.entries(SET.finishes || {})) finishChoice[setNames[l] || l] = v;
+if (!SETUP) try { Object.assign(finishChoice, JSON.parse(localStorage.getItem(FIN_KEY) || '{}')); } catch (_) {}
 function applyFinish(label, choice){
   const idx = finishGroups().get(label); if (!idx) return;
   for (const x of allObjs()) for (const m of x.meshes) if (idx.has(m.userData.mi)) finishMesh(m, choice);
   if (choice) finishChoice[label] = choice; else delete finishChoice[label];
   try { localStorage.setItem(FIN_KEY, JSON.stringify(finishChoice)); } catch (_) {}
   applyObjFinishes();                            // a part or cabinet given its own finish keeps it
+  if (SETUP) setupSave();
 }
 // finishes given to one part or one cabinet: {part index: {label, choice}}
 const objFinish = {};
 const OBJ_KEY = FIN_KEY + '-obj';
-try { Object.assign(objFinish, JSON.parse(localStorage.getItem(OBJ_KEY) || '{}')); } catch (_) {}
+for (const f of SET.objFinishes || []){ const i = parts.indexOf(findRef(f.ref)); if (i >= 0) objFinish[i] = {label: setNames[f.label] || f.label, choice: f.choice}; }
+if (!SETUP) try { Object.assign(objFinish, JSON.parse(localStorage.getItem(OBJ_KEY) || '{}')); } catch (_) {}
 function applyObjFinishes(){
   for (const [i, f] of Object.entries(objFinish)){ const x = parts[+i]; if (x) for (const m of x.meshes) if (matName(m.userData.mi) === f.label) finishMesh(m, f.choice); }
 }
@@ -948,6 +1056,7 @@ function setObjFinish(list, label, choice){
     if (choice) objFinish[i] = {label, choice}; else delete objFinish[i];
   }
   try { localStorage.setItem(OBJ_KEY, JSON.stringify(objFinish)); } catch (_) {}
+  if (SETUP) setupSave();
 }
 function finishRow(label, opts){
   const el = document.createElement('div'); el.className = 'fin';
@@ -1024,9 +1133,11 @@ function applyVisibility(){
     else on = !hiddenTypes.has(typeOf(x.p.g)) && !(k === 'hw' && hideHardware);
     if (hiddenParts.has(x)) on = false;
     if (x.p.cut) on = false;                       // a sink cabinet's top under the sink (left out of the preview)
+    if (x.removed) on = false;                     // left out by the set-up
     for (const ob of x.meshes.concat(x.edges)) ob.visible = on && !(isSheet(ob.userData.mi) && hiddenMats.has(matName(ob.userData.mi)));
   }
   updateLabels();
+  if (SETUP) setupSave();
 }
 const PART_NAMES = {LU:'Left end', RU:'Right end', TO:'Top', BO:'Bottom', DE:'Bottom', UB:'Back', AS:'Adjustable shelf',
   FS:'Fixed shelf', PT:'Partition', SL:'Sleeper', FT:'Front toe', BT:'Back toe', SFT:'Kick face', BBK:'Drawer back',
@@ -1577,6 +1688,11 @@ function facing(c){
 }
 // tour stops: cabinets side by side facing the same way make a run; a run is seen in pieces about 1.8 m wide
 function tourStops(){
+  if (customStops && customStops.length)          // the set-up's own stops
+    return customStops.map(t => ({eye: new THREE.Vector3().fromArray(t.e), look: new THREE.Vector3().fromArray(t.l), gs: t.gs || []}));
+  return autoStops();
+}
+function autoStops(){
   const items = cabGroups.filter(c => c.kind !== 'toe' && c.kind !== 'panel').map(c => {
     const n = facing(c), ax = Math.abs(n.x) > 0.5 ? 'z' : 'x', front = n.x + n.z > 0 ? c.box.max[ax === 'z' ? 'x' : 'z'] : c.box.min[ax === 'z' ? 'x' : 'z'];
     return {c, n, ax, front, lo: c.box.min[ax], hi: c.box.max[ax]};
@@ -1824,6 +1940,126 @@ $('tPlay').onclick = () => { if (!tour) return; tour.playing = !tour.playing;
 $('tExit').onclick = () => stopTour();
 controls.addEventListener('start', () => { glide = null; pauseTour(); });
 
+// ---- set-up mode (?setup): see the top of start(). Everything here only runs for the team.
+function startView(v){
+  camera.position.fromArray(v, 0); controls.target.fromArray(v, 3);
+  const d = camera.position.distanceTo(controls.target);
+  camera.near = Math.max(20, d / 200); camera.far = d * 20 + 20000; camera.updateProjectionMatrix(); controls.update();
+  if (Math.abs(v[1] - (floorY + EYE)) < 30) setWalking(true);
+}
+const rnd = v => [Math.round(v.x), Math.round(v.y), Math.round(v.z)];
+function setupSave(){
+  if (!SETUP || !setupReady) return;
+  const room = {};
+  if (setupView) room.view = setupView;
+  if (customStops) room.tour = customStops;
+  const rem = [...hiddenParts].map(refOf).filter(Boolean); if (rem.length) room.removed = rem;
+  if (Object.keys(finishChoice).length) room.finishes = Object.assign({}, finishChoice);
+  const of = Object.entries(objFinish).map(([i, f]) => ({ref: refOf(parts[+i]), label: f.label, choice: f.choice})).filter(f => f.ref);
+  if (of.length) room.objFinishes = of;
+  const show = {types: [...hiddenTypes], mats: [...hiddenMats], walls: hideWalls, room: hideRoom, hw: hideHardware};
+  if (show.types.length || show.mats.length || show.walls || show.room || show.hw) room.show = show;
+  if (Object.keys(setNames).length) room.names = Object.assign({}, setNames);
+  setupDraft.rooms[BOOT.roomName] = room;
+  try { localStorage.setItem(SETUP_KEY, JSON.stringify(setupDraft)); } catch (_) {}
+  if (!$('setpanel').hidden) suStatus();
+}
+// the doors to open at a stop: the ones open now, else the cabinets straight in front of the camera
+function stopCabs(){
+  const open = movers.filter(mv => mv.target > 0 && !mv.parentMv && parts[mv.m.f]).map(mv => parts[mv.m.f].p.g);
+  if (open.length) return [...new Set(open)];
+  camera.updateMatrixWorld(); const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  return cabGroups.filter(c => c.kind !== 'toe' && c.kind !== 'panel' && fr.containsPoint(c.box.getCenter(new THREE.Vector3()))
+    && c.box.getCenter(new THREE.Vector3()).distanceTo(camera.position) < 3500).map(c => c.g);
+}
+const hereStop = () => ({e: rnd(camera.position), l: rnd(controls.target), gs: stopCabs()});
+function suMsg(t){ $('suMsg').textContent = t; }
+function suStatus(){
+  $('suView').textContent = setupView ? 'Your view' : 'Normal (the whole room)';
+  $('suTour').textContent = customStops ? 'Your stops' : 'Automatic';
+  $('suTourN').textContent = customStops ? customStops.length + ' stop' + (customStops.length === 1 ? '' : 's') + ', in this order:' : 'Automatic stops. Add your own to replace them.';
+  const ol = $('suStops'); ol.innerHTML = '';
+  (customStops || []).forEach((t, i) => {
+    const li = document.createElement('li');
+    const cabs = (t.gs || []).map(g => cabNoOf(g)).filter(Boolean);
+    li.innerHTML = '<span><b>' + (i + 1) + '</b> · ' + (t.gs && t.gs.length ? 'opens ' + (cabs.length ? 'cab ' + cabs.join(', ') : t.gs.length + ' cab' + (t.gs.length === 1 ? '' : 's')) : 'no doors') + '</span>';
+    const btn = (label, title, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.title = title; b.onclick = fn; li.appendChild(b); };
+    btn('Go', 'Go to this stop', () => { if (!walking) setWalking(true); glideTo(new THREE.Vector3().fromArray(t.e), new THREE.Vector3().fromArray(t.l), 1); });
+    btn('↑', 'Earlier', () => { if (i){ customStops.splice(i - 1, 0, customStops.splice(i, 1)[0]); setupSave(); } });
+    btn('↓', 'Later', () => { if (i < customStops.length - 1){ customStops.splice(i + 1, 0, customStops.splice(i, 1)[0]); setupSave(); } });
+    btn('Here', 'Move this stop to where you are now (and the doors open now)', () => { customStops[i] = hereStop(); setupSave(); suMsg('Stop ' + (i + 1) + ' moved here.'); });
+    btn(t.gs && t.gs.length ? 'No doors' : 'Doors', 'Open no doors here / open the cabinets in view', () => { t.gs = t.gs && t.gs.length ? [] : stopCabs(); setupSave(); });
+    btn('✕', 'Remove this stop', () => { customStops.splice(i, 1); if (!customStops.length) customStops = null; setupSave(); });
+    ol.appendChild(li);
+  });
+  $('suHidden').textContent = hiddenParts.size ? hiddenParts.size + ' part' + (hiddenParts.size === 1 ? '' : 's') + ' left out' : 'Nothing left out';
+  $('suShowAll').hidden = !hiddenParts.size;
+  const nf = Object.keys(finishChoice).length + Object.keys(objFinish).length;
+  $('suFin').textContent = nf ? nf + ' finish change' + (nf === 1 ? '' : 's') : 'CV finishes';
+}
+function suNames(){
+  const box = $('suNames'); box.innerHTML = '';
+  const seen = new Set();
+  const used = new Set(); for (const x of parts) for (const mh of x.meshes) used.add(mh.userData.mi);   // (the joinery's own materials)
+  (JOB.materials || []).forEach((m, mi) => {
+    if (!m.orig || seen.has(m.orig) || !used.has(mi)) return; seen.add(m.orig);
+    const row = document.createElement('label');
+    row.innerHTML = '<span></span><input type="text">';
+    row.querySelector('span').textContent = m.orig;
+    const inp = row.querySelector('input'); inp.value = m.name; inp.placeholder = m.orig;
+    inp.onchange = () => rename(m.orig, inp.value.trim());
+    box.appendChild(row);
+  });
+  if (!seen.size) box.textContent = 'No board materials in this room.';
+}
+function rename(orig, to){
+  to = to || orig;
+  const from = (JOB.materials.find(m => m.orig === orig) || {}).name || orig;
+  if (from === to) return;
+  for (const m of JOB.materials) if (m.orig === orig) m.name = to;
+  if (to === orig) delete setNames[orig]; else setNames[orig] = to;
+  if (from in finishChoice){ finishChoice[to] = finishChoice[from]; delete finishChoice[from]; }
+  for (const f of Object.values(objFinish)) if (f.label === from) f.label = to;
+  if (hiddenMats.has(from)){ hiddenMats.delete(from); hiddenMats.add(to); }
+  setupSave(); if (!$('sheet').hidden) buildSheet();
+  suMsg('"' + orig + '" shows as "' + to + '".');
+}
+function suDownload(){
+  setupSave();
+  const out = {v: 1, id: BOOT.id, job: BOOT.index.job, saved: new Date().toISOString(), rooms: Object.assign({}, SEALED, setupDraft.rooms)};
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], {type: 'application/json'}));
+  a.download = 'preview settings.json'; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  suMsg('Saved "preview settings.json" (all rooms you set up). Put it in the job\'s Client Previews folder, or leave it in Downloads, then run run_preview.bat.');
+}
+function suPlace(){             // just under the buttons (they wrap to two rows on a phone)
+  const bar = document.querySelector('.views'), top = bar ? Math.round(bar.getBoundingClientRect().bottom - stage.getBoundingClientRect().top + 8) : 64;
+  $('setpanel').style.top = top + 'px'; $('setpanel').style.maxHeight = 'calc(100% - ' + (top + 12) + 'px)';
+}
+function setupInit(){
+  $('vSetup').hidden = false;
+  $('vSetup').onclick = () => { const open = $('setpanel').hidden; $('setpanel').hidden = !open; $('vSetup').setAttribute('aria-pressed', open); if (open){ suPlace(); suStatus(); suNames(); } };
+  $('suDone').onclick = () => { $('setpanel').hidden = true; $('vSetup').setAttribute('aria-pressed', false); };
+  $('suRoom').textContent = BOOT.roomName;
+  $('suViewSet').onclick = () => { setupView = rnd(camera.position).concat(rnd(controls.target)); setupSave(); suMsg('The preview will open on this view.'); };
+  $('suViewClr').onclick = () => { setupView = null; setupSave(); suMsg('Opens on the whole room again.'); };
+  $('suAdd').onclick = () => {
+    if (!walking){ suMsg('Stops are stood in: press Walk, go where the stop should be, open any doors to show, then Add.'); return; }
+    customStops = (customStops || []).concat([hereStop()]); setupSave(); suMsg('Stop ' + customStops.length + ' added.');
+  };
+  $('suCopy').onclick = () => { customStops = autoStops().map(t => ({e: rnd(t.eye), l: rnd(t.look), gs: t.gs || []})); setupSave(); suMsg('Copied the ' + customStops.length + ' automatic stops - change them as you like.'); };
+  $('suAuto').onclick = () => { customStops = null; setupSave(); suMsg('Back to automatic stops.'); };
+  $('suPlay').onclick = () => { if (tour) stopTour(); startTour(); };
+  $('suShowAll').onclick = () => { hiddenParts.clear(); applyVisibility(); shadowDirty = true; markDirty(); };
+  $('suSave').onclick = suDownload;
+  $('suReset').onclick = () => { delete setupDraft.rooms[BOOT.roomName]; try { localStorage.setItem(SETUP_KEY, JSON.stringify(setupDraft)); } catch (_) {}
+    suMsg('This room\'s set-up on this computer is cleared - reload to start again from what clients see now.'); };
+  setupSave();
+  $('setpanel').hidden = false; $('vSetup').setAttribute('aria-pressed', true); suPlace(); suStatus(); suNames();
+  addEventListener('resize', () => { if (!$('setpanel').hidden) suPlace(); });
+}
+
 // ---- comments: press Comment, tap the spot, write a note. Notes stay on this device (all rooms of the job)
 // until sent: "Send by email" writes them into an email to us, each with a link that opens this exact view ----
 const NOTE_SLOT = 'cp-notes-' + BOOT.id, NAME_SLOT = 'cp-name';
@@ -1975,8 +2211,8 @@ let sectionOn = false;
 { // raycasts skip what a section has cut away
   const io = THREE.Raycaster.prototype.intersectObjects, i1 = THREE.Raycaster.prototype.intersectObject;
   const keep = h => !(sectionOn && h.object.material && h.object.material.clippingPlanes === CLIP && clipped(h.point));
-  THREE.Raycaster.prototype.intersectObjects = function(o, r, out){ return io.call(this, o, r, out).filter(keep); };
-  THREE.Raycaster.prototype.intersectObject = function(o, r, out){ return i1.call(this, o, r, out).filter(keep); };
+  THREE.Raycaster.prototype.intersectObjects = function(o, r, out){ this.layers.enableAll(); return io.call(this, o, r, out).filter(keep); };   // (merged boards' originals sit on a hidden layer)
+  THREE.Raycaster.prototype.intersectObject = function(o, r, out){ this.layers.enableAll(); return i1.call(this, o, r, out).filter(keep); };
 }
 const secLines = new THREE.Group(); scene.add(secLines);
 // solid cut faces: where a cut goes through a board, a flat face fills the board's cross-section (the board's box
@@ -2292,7 +2528,7 @@ if (!PHONE && THREE.SSAOPass && THREE.SimplexNoise){
     ao.copyMaterial.blendSrc = THREE.DstColorFactor; ao.copyMaterial.blendDst = THREE.ZeroFactor;   // multiply over the screen
   } catch (e){ ao = null; }
 }
-function aoSize(){ if (ao){ const w = renderer.domElement.width, h = renderer.domElement.height; const k = renderer.getPixelRatio() >= 1.5 ? 2 : 1; ao.setSize(Math.max(2, Math.round(w / k)), Math.max(2, Math.round(h / k))); } }
+function aoSize(){ if (ao){ const w = renderer.domElement.width, h = renderer.domElement.height; const k = 2;   /* (half-size soft shading: blurred anyway, and a quarter of the work) */ ao.setSize(Math.max(2, Math.round(w / k)), Math.max(2, Math.round(h / k))); } }
 function drawAO(){
   const u = ao.ssaoMaterial.uniforms, far = camera.position.distanceTo(controls.target);
   u.aoStrength.value = THREE.MathUtils.clamp((9000 - far) / 5000, 0, 1) * 0.7;   // (toned down)
@@ -2309,6 +2545,126 @@ function drawAO(){
   ao.renderPass(renderer, ao.copyMaterial, null);
   return true;
 }
+// ---- speed: draw-call batching ----
+// A room is ~1000 separate boards and their outlines, and the graphics chip pays a fixed cost for every one of
+// them on every frame (twice with the soft shading). Once the view settles, everything that looks the same and
+// moves together (same finish, same door/drawer, same highlight) is merged into one mesh, so a frame is a few
+// dozen draws instead of ~2000. The originals stay in the scene, out of sight (layer 5), for tapping, measuring
+// and section caps. Any change to a board (hide, finish, highlight, explode) splits the batches straight away and
+// they are rebuilt once things are still again.
+const BATCH_LAYER = 5, NOBATCH = /[?&]nobatch\b/.test(location.search);
+let batches = [], batchMembers = [], batchWanted = 0, batchStable = 0, batchLastSig = '';
+const batchObjs = () => parts.concat(hardware).filter(x => !(x.p && x.p.k === 'wall'));
+function meshKey(m){
+  const t = m.material;
+  if (!m.visible || !t || !t.visible || t.opacity < 0.999 || !t.depthWrite || t.wireframe || !m.parent) return null;
+  if (sel && sel.meshes.indexOf(m) >= 0) return null;          // (the picked part stays on its own: its glow changes)
+  return 'm' + m.parent.id + '|' + (t.map ? t.map.uuid : '-') + '|' + t.color.getHex() + '|' + t.emissive.getHex() + '|' + t.emissiveIntensity
+    + '|' + t.roughness + '|' + t.metalness + '|' + t.envMapIntensity + '|' + t.side + '|' + m.renderOrder + '|' + m.castShadow + '|' + m.receiveShadow
+    + '|' + !!m.userData.noAO + '|' + !!m.geometry.attributes.uv + '|' + t.polygonOffset;
+}
+function edgeKey(e){
+  const t = e.material;
+  if (!e.visible || !t || !t.visible || !e.parent) return null;
+  return 'e' + e.parent.id + '|' + t.color.getHex() + '|' + t.opacity + '|' + t.depthTest + '|' + t.transparent + '|' + e.renderOrder;
+}
+function unbatch(){
+  if (!batches.length) return;
+  for (const b of batches){ if (b.parent) b.parent.remove(b); b.geometry.dispose(); }
+  for (const r of batchMembers) r.ob.layers.set(0);
+  batches = []; batchMembers = []; forceFrame = true;   // (same boards, so shadows and caps stay as they are)
+}
+function mergeMeshes(list, lines){
+  let nv = 0, ni = 0;
+  for (const m of list){ const g = m.geometry; nv += g.attributes.position.count; ni += g.index ? g.index.count : g.attributes.position.count; }
+  const P = new Float32Array(nv * 3), N = lines ? null : new Float32Array(nv * 3);
+  const hasUV = !lines && !!list[0].geometry.attributes.uv, U = hasUV ? new Float32Array(nv * 2) : null;
+  const I = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  const v = new THREE.Vector3(), nm = new THREE.Matrix3();
+  let vo = 0, io = 0;
+  for (const m of list){
+    m.updateMatrix();
+    const g = m.geometry, pa = g.attributes.position, na = g.attributes.normal, ua = g.attributes.uv, mx = m.matrix;
+    const ident = mx.equals(IDENT);
+    if (!lines) nm.getNormalMatrix(mx);
+    for (let k = 0; k < pa.count; k++){
+      v.fromBufferAttribute(pa, k); if (!ident) v.applyMatrix4(mx); P[(vo + k) * 3] = v.x; P[(vo + k) * 3 + 1] = v.y; P[(vo + k) * 3 + 2] = v.z;
+      if (N && na){ v.fromBufferAttribute(na, k); if (!ident) v.applyMatrix3(nm).normalize(); N[(vo + k) * 3] = v.x; N[(vo + k) * 3 + 1] = v.y; N[(vo + k) * 3 + 2] = v.z; }
+      if (U && ua){ U[(vo + k) * 2] = ua.getX(k); U[(vo + k) * 2 + 1] = ua.getY(k); }
+    }
+    if (g.index){ const ia = g.index.array; for (let k = 0; k < ia.length; k++) I[io + k] = ia[k] + vo; io += ia.length; }
+    else { for (let k = 0; k < pa.count; k++) I[io + k] = vo + k; io += pa.count; }
+    vo += pa.count;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  if (N) g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+  if (U) g.setAttribute('uv', new THREE.BufferAttribute(U, 2));
+  g.setIndex(new THREE.BufferAttribute(I, 1)); g.computeBoundingSphere(); g.computeBoundingBox();
+  return g;
+}
+const IDENT = new THREE.Matrix4();
+let batchMs = 0;
+function rebuildBatches(){
+  const t0 = performance.now();
+  unbatch();
+  if (NOBATCH) return;
+  const groups = new Map();
+  for (const x of batchObjs()){
+    for (const m of x.meshes){ const k = meshKey(m); if (k){ if (!groups.has(k)) groups.set(k, []); groups.get(k).push(m); } }
+    for (const e of x.edges){ const k = edgeKey(e); if (k){ if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); } }
+  }
+  for (const [k, list] of groups){
+    if (list.length < 2) continue;                // one board on its own: nothing to gain
+    const lines = k[0] === 'e', first = list[0];
+    // very big groups are split so a phone never needs one huge buffer
+    for (let s = 0; s < list.length; s += 400){
+      const chunk = list.slice(s, s + 400);
+      if (chunk.length < 2) continue;
+      const g = mergeMeshes(chunk, lines);
+      const b = lines ? new THREE.LineSegments(g, first.material) : new THREE.Mesh(g, first.material);
+      b.renderOrder = first.renderOrder; b.castShadow = first.castShadow; b.receiveShadow = first.receiveShadow;
+      b.userData.noAO = first.userData.noAO; b.userData.batch = true; b.raycast = () => {};
+      b.matrixAutoUpdate = false; b.updateMatrix();
+      first.parent.add(b); batches.push(b);
+      for (const ob of chunk){ ob.layers.set(BATCH_LAYER); batchMembers.push(snap(ob)); }
+    }
+  }
+  forceFrame = true; batchMs = performance.now() - t0;
+}
+// anything about a batched board changed since the merge: split now, merge again once it's still
+// (plain number checks: this runs before every drawn frame, so no strings)
+function snap(ob){
+  const t = ob.material, r = {ob, t, p: ob.parent, x: ob.position.x, y: ob.position.y, z: ob.position.z, map: t.map, ro: ob.renderOrder,
+    cr: t.color.r, cg: t.color.g, cb: t.color.b, op: t.opacity, mv: t.visible, ov: ob.visible, cs: ob.castShadow};
+  if (t.emissive){ r.er = t.emissive.r; r.eg = t.emissive.g; r.eb = t.emissive.b; r.ei = t.emissiveIntensity; r.ro2 = t.roughness; r.me = t.metalness; r.en = t.envMapIntensity; r.dw = t.depthWrite; }
+  return r;
+}
+function batchValid(){
+  for (const r of batchMembers){
+    const ob = r.ob, t = ob.material;
+    if (t !== r.t || ob.parent !== r.p || ob.visible !== r.ov || t.visible !== r.mv || t.opacity !== r.op || t.map !== r.map || ob.renderOrder !== r.ro || ob.castShadow !== r.cs
+      || ob.position.x !== r.x || ob.position.y !== r.y || ob.position.z !== r.z || t.color.r !== r.cr || t.color.g !== r.cg || t.color.b !== r.cb) return false;
+    if (t.emissive && (t.emissive.r !== r.er || t.emissive.g !== r.eg || t.emissive.b !== r.eb || t.emissiveIntensity !== r.ei
+      || t.roughness !== r.ro2 || t.metalness !== r.me || t.envMapIntensity !== r.en || t.depthWrite !== r.dw)) return false;
+  }
+  return true;
+}
+function batchSig(){
+  let n = 0, h = 0;
+  for (const x of batchObjs()){ if (x === sel) continue; for (const m of x.meshes){ if (m.visible){ n++; h = (h * 31 + m.material.color.getHex() + m.material.emissive.getHex() + (m.material.map ? m.material.map.id : 0) + Math.round(m.material.opacity * 100) + Math.round(m.position.x + m.position.y + m.position.z)) | 0; } } }
+  return n + ':' + h + ':' + ex + ':' + exTarget;
+}
+function batchCheck(){             // (before each drawn frame)
+  if (batches.length && (ex !== 0 || exTarget !== 0 || !batchValid())){ unbatch(); batchLastSig = ''; }
+}
+function batchStep(t){              // (every tick while not merged)
+  if (NOBATCH || batches.length || ex !== 0 || exTarget !== 0) return;           // exploded: boards move one by one
+  const s = batchSig();
+  if (s !== batchLastSig){ batchLastSig = s; batchStable = t; return; }
+  if (t - batchStable > 350) rebuildBatches();
+}
+window.__batchInfo = () => { const t0 = performance.now(), ok = batchValid(); return {batches: batches.length, members: batchMembers.length, buildMs: Math.round(batchMs), checkMs: +(performance.now() - t0).toFixed(2), ok}; };
 // Moving (orbit, glide, doors): plain frames, fast. Once it settles: one frame with the ambient occlusion.
 // Nothing changing: nothing drawn (the last picture stays up).
 // The soft shading (ambient occlusion) is either on for every frame or off - never switched on and off as the
@@ -2330,19 +2686,21 @@ function render(t){
     if (gaps.length >= 30 && gaps.reduce((a, b) => a + b, 0) / gaps.length > 34){ aoOn = false; console.log('soft shading off: too slow here'); }
   }
   lastT = t;
-  drawCaps(); renderer.render(scene, camera);
+  batchCheck(); drawCaps(); renderer.render(scene, camera);
   if (ao && aoOn) drawAO();
   drawLoupe();
 }
 new ResizeObserver(() => { aoSize(); markDirty(); }).observe(stage); aoSize();
 
 resize(); hintText(); show(null); drawPins(); openView();
+if (!BOOT.view && setupView) startView(setupView);
+setupReady = true; if (SETUP) setupInit();
 window.__cpBuilt = true; prepTick();
 (function loop(t){
   if (sel) for (const m of sel.meshes) m.material.emissiveIntensity = .35;   // (steady: a pulse would keep redrawing)
   glideStep(); moveStep(); controls.update(); holdEye(); wallStep();
   if (shadowDirty || ex !== exTarget || movers.some(m => m.moved)){ renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
-  render(t || 0); requestAnimationFrame(loop);
+  batchStep(t || 0); render(t || 0); requestAnimationFrame(loop);
 })();
 }
 </script>
