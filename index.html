@@ -2559,7 +2559,7 @@ function drawAO(){
 // and section caps. Any change to a board (hide, finish, highlight, explode) splits the batches straight away and
 // they are rebuilt once things are still again.
 const BATCH_LAYER = 5, NOBATCH = /[?&]nobatch\b/.test(location.search);
-let batches = [], batchMembers = [], batchWanted = 0, batchStable = 0, batchLastSig = '';
+let batches = [], batchMembers = [], batchWanted = 0, batchStable = 0, batchLastSig = '', batchPartial = false;
 const batchObjs = () => parts.concat(hardware).filter(x => !(x.p && x.p.k === 'wall'));
 function meshKey(m){
   const t = m.material;
@@ -2578,7 +2578,7 @@ function unbatch(){
   if (!batches.length) return;
   for (const b of batches){ if (b.parent) b.parent.remove(b); b.geometry.dispose(); }
   for (const r of batchMembers) r.ob.layers.set(0);
-  batches = []; batchMembers = []; forceFrame = true;   // (same boards, so shadows and caps stay as they are)
+  batches = []; batchMembers = []; batchPartial = false; forceFrame = true;   // (same boards, so shadows and caps stay as they are)
 }
 function mergeMeshes(list, lines){
   let nv = 0, ni = 0;
@@ -2633,7 +2633,7 @@ function rebuildBatches(){
       b.userData.noAO = first.userData.noAO; b.userData.batch = true; b.raycast = () => {};
       b.matrixAutoUpdate = false; b.updateMatrix();
       first.parent.add(b); batches.push(b);
-      for (const ob of chunk){ ob.layers.set(BATCH_LAYER); batchMembers.push(snap(ob)); }
+      for (const ob of chunk){ ob.layers.set(BATCH_LAYER); const r = snap(ob); r.b = b; batchMembers.push(r); }
     }
   }
   forceFrame = true; batchMs = performance.now() - t0;
@@ -2646,15 +2646,25 @@ function snap(ob){
   if (t.emissive){ r.er = t.emissive.r; r.eg = t.emissive.g; r.eb = t.emissive.b; r.ei = t.emissiveIntensity; r.ro2 = t.roughness; r.me = t.metalness; r.en = t.envMapIntensity; r.dw = t.depthWrite; }
   return r;
 }
-function batchValid(){
+// only the merged meshes holding a changed board are split (a scanned part lights up at once; the rest stay merged)
+function batchValid(){ return !staleBatches().size; }
+function staleBatches(){
+  const bad = new Set();
   for (const r of batchMembers){
+    if (bad.has(r.b)) continue;
     const ob = r.ob, t = ob.material;
     if (t !== r.t || ob.parent !== r.p || ob.visible !== r.ov || t.visible !== r.mv || t.opacity !== r.op || t.map !== r.map || ob.renderOrder !== r.ro || ob.castShadow !== r.cs
-      || ob.position.x !== r.x || ob.position.y !== r.y || ob.position.z !== r.z || t.color.r !== r.cr || t.color.g !== r.cg || t.color.b !== r.cb) return false;
+      || ob.position.x !== r.x || ob.position.y !== r.y || ob.position.z !== r.z || t.color.r !== r.cr || t.color.g !== r.cg || t.color.b !== r.cb){ bad.add(r.b); continue; }
     if (t.emissive && (t.emissive.r !== r.er || t.emissive.g !== r.eg || t.emissive.b !== r.eb || t.emissiveIntensity !== r.ei
-      || t.roughness !== r.ro2 || t.metalness !== r.me || t.envMapIntensity !== r.en || t.depthWrite !== r.dw)) return false;
+      || t.roughness !== r.ro2 || t.metalness !== r.me || t.envMapIntensity !== r.en || t.depthWrite !== r.dw)) bad.add(r.b);
   }
-  return true;
+  return bad;
+}
+function dropBatches(bad){
+  for (const b of bad){ if (b.parent) b.parent.remove(b); b.geometry.dispose(); }
+  batches = batches.filter(b => !bad.has(b));
+  batchMembers = batchMembers.filter(r => { if (!bad.has(r.b)) return true; r.ob.layers.set(0); return false; });
+  batchPartial = true; forceFrame = true;
 }
 function batchSig(){
   let n = 0, h = 0;
@@ -2662,10 +2672,13 @@ function batchSig(){
   return n + ':' + h + ':' + ex + ':' + exTarget;
 }
 function batchCheck(){             // (before each drawn frame)
-  if (batches.length && (ex !== 0 || exTarget !== 0 || !batchValid())){ unbatch(); batchLastSig = ''; }
+  if (!batches.length) return;
+  if (ex !== 0 || exTarget !== 0){ unbatch(); batchLastSig = ''; return; }
+  const bad = staleBatches();
+  if (bad.size){ dropBatches(bad); batchLastSig = ''; }
 }
 function batchStep(t){              // (every tick while not merged)
-  if (NOBATCH || batches.length || ex !== 0 || exTarget !== 0) return;           // exploded: boards move one by one
+  if (NOBATCH || (batches.length && !batchPartial) || ex !== 0 || exTarget !== 0) return;           // exploded: boards move one by one
   const s = batchSig();
   if (s !== batchLastSig){ batchLastSig = s; batchStable = t; return; }
   if (t - batchStable > 350) rebuildBatches();
