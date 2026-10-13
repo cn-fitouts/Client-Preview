@@ -5,31 +5,37 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="no-referrer">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <style>
 /* Client Preview: a copy of the Part Finder viewer for clients - one job, unlocked with a PIN, comments by email.
    Layout: full-height 3D stage, job strip and room tabs on top, card docked at the bottom */
+/* CN Fitouts brand: deep #004E70, mid #0078A8, cyan #00A8D8, pale #E6F4FA, set in Bahnschrift
+   (Windows has it; phones and Macs get Barlow Semi Condensed, the nearest web font) */
 :root{
-  --bg:#eef0f1; --stage:#e3e6e8; --card:#ffffff; --fg:#1d2226; --muted:#5d666d; --line:#cdd2d6;
-  --hi:#f2600c; --hi-ink:#ffffff; --panel:#d9d4cc; --edge:#6f777d; --ghost:#9aa3a9;
-  --display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --brand:#004E70; --brand-ink:#ffffff; --mid:#0078A8; --cyan:#00A8D8; --pale:#E6F4FA;
+  --bg:#E6F4FA; --stage:#e4edf2; --card:#ffffff; --fg:#0b2b3a; --muted:#4d6b7a; --line:#c3d9e4;
+  --hi:#0078A8; --hi-ink:#ffffff; --panel:#d9d4cc; --edge:#5f7c8a; --ghost:#9db3be;
+  --display:Bahnschrift,"Barlow Semi Condensed","Arial Narrow",system-ui,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#15191c; --stage:#1b2024; --card:#22282c; --fg:#e8ecee; --muted:#9aa4ab; --line:#343c42;
-  --hi:#ff7a2e; --hi-ink:#1a0e05; --panel:#5b5852; --edge:#a7b0b6; --ghost:#58626a; color-scheme:dark}}
+  --brand:#003a54; --bg:#061d28; --stage:#0a2531; --card:#0e2e3c; --fg:#e6f4fa; --muted:#93b4c3; --line:#1f4a5c;
+  --hi:#00A8D8; --hi-ink:#00212e; --panel:#5b5852; --edge:#9fbccb; --ghost:#3f6576; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#15191c; --stage:#1b2024; --card:#22282c; --fg:#e8ecee; --muted:#9aa4ab; --line:#343c42;
-  --hi:#ff7a2e; --hi-ink:#1a0e05; --panel:#5b5852; --edge:#a7b0b6; --ghost:#58626a; color-scheme:dark}
+  --brand:#003a54; --bg:#061d28; --stage:#0a2531; --card:#0e2e3c; --fg:#e6f4fa; --muted:#93b4c3; --line:#1f4a5c;
+  --hi:#00A8D8; --hi-ink:#00212e; --panel:#5b5852; --edge:#9fbccb; --ghost:#3f6576; color-scheme:dark}
 html,body{height:100%}
 body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:15px;display:flex;flex-direction:column;overflow:hidden}
-.strip{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.strip b{color:var(--fg);font-weight:600}
+.strip{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 16px;background:var(--brand);color:#cfe9f5;font-size:13px;letter-spacing:.06em;text-transform:uppercase;border-bottom:3px solid var(--cyan)}
+.strip b{color:#ffffff;font-weight:600}
+.cnmark{font-weight:700;letter-spacing:.1em;color:#ffffff;margin-right:10px;padding-right:10px;border-right:1px solid rgba(255,255,255,.35)}
+@media (max-width:520px){.cnmark{display:none}}
 #stage{flex:1;min-height:0;position:relative;background:var(--stage);touch-action:none}
 #stage canvas{display:block;width:100%;height:100%}
 .views{position:absolute;top:12px;right:12px;left:12px;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
 .views button{font:500 13px var(--display);letter-spacing:.04em;padding:8px 12px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
-.views button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.views button[aria-pressed="true"]{background:var(--brand);color:#fff;border-color:var(--brand)}
+.views button:hover{border-color:var(--mid)}
 .views button:focus-visible{outline:2px solid var(--hi);outline-offset:2px}
 .card{background:var(--card);border-top:1px solid var(--line);padding:14px 16px calc(16px + env(safe-area-inset-bottom,0px));display:grid;grid-template-columns:auto 1fr;gap:4px 16px;align-items:center}
 .tag{grid-row:span 2;background:var(--hi);color:var(--hi-ink);font:600 13px var(--mono);border-radius:6px;padding:8px 10px;text-align:center;line-height:1.1}
@@ -193,7 +199,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:1
 </style>
 
 </head><body>
-<div class="strip"><span><b id="job">3D preview</b> <span id="rev"></span></span><span class="right" id="tools" hidden><button type="button" class="cbtn ghost" id="cList">Comments</button><button type="button" class="cbtn" id="cBtn" aria-pressed="false">Comment</button></span></div>
+<div class="strip"><span><span class="cnmark">CN Fitouts</span><b id="job">3D preview</b> <span id="rev"></span></span><span class="right" id="tools" hidden><button type="button" class="cbtn ghost" id="cList">Comments</button><button type="button" class="cbtn" id="cBtn" aria-pressed="false">Comment</button></span></div>
 <main class="lock" id="lock">
   <form id="lockForm" autocomplete="off">
     <h1>3D preview</h1>
@@ -2074,7 +2080,7 @@ function pinSprite(label, strong){
   const g = c.getContext('2d');
   g.beginPath(); g.arc(32, 32, 27, 0, Math.PI * 2); g.fillStyle = strong ? css('--hi') : css('--fg'); g.fill();
   g.lineWidth = 5; g.strokeStyle = '#ffffff'; g.stroke();
-  g.fillStyle = strong ? css('--hi-ink') : css('--bg'); g.font = '600 28px "IBM Plex Mono", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = strong ? css('--hi-ink') : css('--bg'); g.font = '600 28px Bahnschrift, "Barlow Semi Condensed", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillText(label, 32, 34);
   const t = new THREE.CanvasTexture(c);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({map: t, depthTest: false, depthWrite: false, sizeAttenuation: false, transparent: true}));
