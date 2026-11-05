@@ -597,7 +597,7 @@ function texture(file){
           const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
           c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); t.image = c; t.needsUpdate = true;
         }
-        (texVariants[file] || []).forEach(v => { v.image = t.image; v.needsUpdate = true; }); texUsers[file].forEach(m => { m.needsUpdate = true; }); markDirty(); },
+        (texVariants[file] || []).forEach(v => { v.image = t.image; v.needsUpdate = true; }); texUsers[file].forEach(m => { m.needsUpdate = true; }); markDirty(); if (window.__mirrorSoon) window.__mirrorSoon(500); },
       undefined,
       () => { texPending--; prepTick(); texUsers[file].forEach(m => { m.map = null; m.color.copy(m.userData.fallback); m.userData.base.copy(m.userData.fallback); m.needsUpdate = true; }); });
     t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = Math.min(PHONE ? 4 : 8, renderer.capabilities.getMaxAnisotropy());
@@ -607,8 +607,24 @@ function texture(file){
   return texCache[file];
 }
 const MATS = (JOB.materials || []).map(m => ({c: new THREE.Color(m.c[0], m.c[1], m.c[2]), t: m.t, s: m.s}));
+// CV saves a finish whose colour was changed in CV as a second copy of its picture, named by the tint
+// (..._808080.jpg beside the original ..._ffffff.jpg) - yet still exports the original on some surfaces (the room's
+// walls). Where a job has the original and exactly one edited copy, the edited copy is used everywhere. (as Part Finder)
+const TEX_TINT = /^(.*)_([0-9a-f]{6})(~[0-9a-f]{8})?\.(jpe?g|png|bmp)$/i;
+{
+  const fam = new Map();
+  MATS.forEach(d => { const m = d.t && d.t.match(TEX_TINT); if (!m) return;
+    const f = fam.get(m[1].toLowerCase()) || new Map(); fam.set(m[1].toLowerCase(), f); f.set(m[2].toLowerCase(), d); });
+  for (const f of fam.values()){
+    const edited = [...f.keys()].filter(k => k !== 'ffffff');
+    if (!f.has('ffffff') || edited.length !== 1) continue;
+    const e = f.get(edited[0]), origT = f.get('ffffff').t, eT = e.t, eS = e.s;
+    MATS.forEach(d => { if (d.t === origT){ d.t = eT; d.s = eS; } });
+  }
+}
 // how shiny / metallic a finish is: CV only exports colour and picture, so it's read from the finish name
 // (stone and gloss reflect, timber and matt boards don't, handles and steel are metal)
+const WALLK = k => k === 'wall' || k === 'ceiling';     // (ceilings fade and hide like walls)
 const METAL = /steel|stainless|alumin|silver|chrome|nickel|brass|bronze|copper|gunmetal|galvan|metal|zinc|titanium/i;
 const STONE = /stone|quartz|marble|calacatta|carrara|caesar|dekton|granite|porcelain|neolith|laminam|essa|silestone|terrazzo|onyx|travertine/i;
 const GLOSS = /gloss|lacquer|2.?pac|glass|mirror|acrylic|polyurethane|sheen|tile/i;
@@ -624,14 +640,22 @@ function finishOf(mi, kind){
   if (kind === 'hw' && !d.t && grey && c[0] < .2) return {r: .3, m: .1};      // black appliance fronts, cooktops
   if (/tile/i.test(n)) return {r: .3, m: 0};
   if (MATT.test(n)) return {r: .85, m: 0};
-  if (kind === 'wall' || kind === 'room') return {r: .9, m: 0};
+  if (WALLK(kind) || kind === 'room') return {r: .9, m: 0};
   return {r: .62, m: 0};                                                       // melamine, laminate, timber veneer
 }
+// mirrors: silvered glass - fully reflective, near-white, no picture. A board the job file marks as a mirror (a thin
+// facing on a door in a metal or mirror finish: CV gives a shaving cabinet's mirror its edging's metal), or a finish
+// called a mirror.
+const MIRROR_C = 0xf3f5f7;
+const isMirror = (mi, kind) => kind === 'mirror' || /mirror/i.test(((JOB.materials || [])[mi] || {}).name || '') || /mirror/i.test((MATS[mi] || {}).t || '');
 function realMaterial(mi, kind){
-  const d = MATS[mi], f = finishOf(mi, kind);
-  const mat = new THREE.MeshStandardMaterial({side:THREE.DoubleSide, transparent:true, polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1,
-    roughness: f.r, metalness: f.m, envMapIntensity: ENV_LEVEL * (f.m > .5 ? 1.8 : f.r < .3 ? 1.4 : 1), clippingPlanes: CLIP, clipShadows: true});
-  if (d && d.t){
+  const d = MATS[mi], f = finishOf(mi, kind), mirror = isMirror(mi, kind);
+  const mat = new THREE.MeshStandardMaterial({side:THREE.DoubleSide, polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1,
+    roughness: mirror ? .03 : f.r, metalness: mirror ? 1 : f.m, envMapIntensity: mirror ? ENV_LEVEL * 2.6 : ENV_LEVEL * (f.m > .5 ? 1.8 : f.r < .3 ? 1.4 : 1), clippingPlanes: CLIP, clipShadows: true});
+  // see-through only while faded: solid boards are drawn front to back and skip hidden pixels (much less work)
+  Object.defineProperty(mat, 'transparent', {get(){ return this.opacity < 0.999; }, set(_){}, configurable: true});
+  if (mirror){ mat.color.set(MIRROR_C); mat.userData.mirror = true; }
+  else if (d && d.t){
     // v2 UVs are already in real-size repeats; v1 needs the material's tile size
     const t = JOB.v >= 2 ? textureAt(d.t, 1, 1) : textureAt(d.t, 1 / (d.s[0] || 24), 1 / (d.s[1] || 24));
     mat.map = t; mat.color.set(0xffffff);
@@ -645,14 +669,62 @@ function realMaterial(mi, kind){
 }
 renderer.outputEncoding = THREE.sRGBEncoding;
 
-function geo(sub){
+function geo(sub, board){
   const g = new THREE.BufferGeometry();
-  const P = new Float32Array(sub.p), q = JOB.pq || 1;          // pq: positions in 1/pq mm steps (0.01 mm for measuring)
+  let P = new Float32Array(sub.p), U = sub.u && sub.u.length ? sub.u : null, I = sub.i;
+  const q = JOB.pq || 1;                                      // pq: positions in 1/pq mm steps (0.01 mm for measuring)
   if (q !== 1) for (let k = 0; k < P.length; k++) P[k] /= q;
+  if (board){ const w = holeWalls(P, U, I); if (w){ P = w.P; U = w.U; I = w.I; } }
   g.setAttribute('position', new THREE.BufferAttribute(P, 3));
-  if (sub.u && sub.u.length) g.setAttribute('uv', new THREE.Float32BufferAttribute(sub.u, 2));
-  g.setIndex(sub.i); g.computeVertexNormals(); g.computeBoundingBox();
+  if (U) g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+  g.setIndex(I); g.computeVertexNormals(); g.computeBoundingBox();
   return g;
+}
+// CV's DAE cuts a through-hole (an access cut-out routed in a back, an LED slot, a cable hole) out of both faces of
+// a board but leaves out the hole's walls: you look into the board. Where the same open edge runs round a hole on
+// both faces, the wall between them is put back.
+function holeWalls(P, U, I){
+  const n = P.length / 3; if (n < 12) return null;
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let v = 0; v < n; v++) for (let a = 0; a < 3; a++){ const c = P[v * 3 + a]; if (c < lo[a]) lo[a] = c; if (c > hi[a]) hi[a] = c; }
+  const ext = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]], t = ext.indexOf(Math.min(...ext));
+  if (ext[t] < 3 || ext[t] > 60) return null;                    // (boards only)
+  const ax = [0, 1, 2].filter(a => a !== t), id = new Map(), first = [], vid = new Int32Array(n);
+  const r = c => Math.round(c * 10);
+  for (let v = 0; v < n; v++){
+    const k = r(P[v * 3]) + ',' + r(P[v * 3 + 1]) + ',' + r(P[v * 3 + 2]);
+    let i = id.get(k); if (i === undefined){ i = first.length; id.set(k, i); first.push(v); } vid[v] = i;
+  }
+  const cnt = new Map();
+  for (let k = 0; k < I.length; k += 3) for (let e = 0; e < 3; e++){
+    const a = vid[I[k + e]], b = vid[I[k + (e + 1) % 3]]; if (a === b) continue;
+    const key = a < b ? a + '|' + b : b + '|' + a; cnt.set(key, (cnt.get(key) || 0) + 1);
+  }
+  const side = i => { const c = P[first[i] * 3 + t]; return Math.abs(c - hi[t]) < .6 ? 1 : Math.abs(c - lo[t]) < .6 ? -1 : 0; };
+  const rim = (a, b) => ax.some(x => { const pa = P[first[a] * 3 + x], pb = P[first[b] * 3 + x];
+    return (Math.abs(pa - lo[x]) < .6 && Math.abs(pb - lo[x]) < .6) || (Math.abs(pa - hi[x]) < .6 && Math.abs(pb - hi[x]) < .6); });
+  const flat = i => r(P[first[i] * 3 + ax[0]]) + ',' + r(P[first[i] * 3 + ax[1]]);
+  const tops = [], bottoms = new Set();
+  for (const [key, c] of cnt){
+    if (c !== 1) continue;
+    const [a, b] = key.split('|').map(Number), s = side(a);
+    if (!s || side(b) !== s || rim(a, b)) continue;
+    const f = [flat(a), flat(b)].sort().join('/');
+    if (s > 0) tops.push([a, b, f]); else bottoms.add(f);
+  }
+  const walls = tops.filter(w => bottoms.has(w[2])); if (!walls.length) return null;
+  const nP = new Float32Array(P.length + walls.length * 12); nP.set(P);
+  const nU = U ? U.slice() : null, nI = Array.from(I); let v = n;
+  for (const [a, b] of walls){
+    const base = v;
+    for (const src of [a, b]) for (const lvl of [hi[t], lo[t]]){
+      const o = first[src] * 3; nP[v * 3] = P[o]; nP[v * 3 + 1] = P[o + 1]; nP[v * 3 + 2] = P[o + 2]; nP[v * 3 + t] = lvl;
+      if (nU) nU.push(U[first[src] * 2], U[first[src] * 2 + 1]);
+      v++;
+    }
+    nI.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);    // (a top, a bottom, b top, b bottom)
+  }
+  return {P: nP, U: nU, I: nI};
 }
 // Outline edges: an edge is drawn when only one face uses it, or its faces meet at a real angle.
 // Ignores zero-area slivers and flipped triangle winding, which otherwise draw stray diagonal lines.
@@ -683,9 +755,9 @@ function makeObject(rec, isPart){
   const subs = rec.subs || [{m: -1, p: rec.mesh.p, i: rec.mesh.i}];   // (v1 job files: one plain mesh)
   const meshes = [], edges = [], box = new THREE.Box3();
   for (const s of subs){
-    const g = geo(s);
-    const mesh = new THREE.Mesh(g, realMaterial(s.m, isPart ? 'part' : rec.k));
-    mesh.castShadow = rec.k !== 'wall' && rec.k !== 'room'; mesh.receiveShadow = true;
+    const g = geo(s, isPart);
+    const mesh = new THREE.Mesh(g, realMaterial(s.m, rec.mirror ? 'mirror' : isPart ? 'part' : rec.k));
+    mesh.castShadow = !WALLK(rec.k) && rec.k !== 'room'; mesh.receiveShadow = true;
     mesh.userData.mi = s.m;
     if (isPart) mesh.userData.part = rec;
     scene.add(mesh); meshes.push(mesh); box.union(g.boundingBox);
@@ -706,11 +778,36 @@ function makeObject(rec, isPart){
 }
 const parts = JOB.parts.map(p => makeObject(p, true));
 const hardware = JOB.context.map(c => makeObject(c, false));
-// walls keep their CV finish (paint, tiles, brick - part of what the client is approving); they fade out when the
-// camera is behind them so they never block the view. (Part Finder greys them: the workshop only needs the joinery.)
+// walls fade out when the camera is behind them so they never block the view (their finish: see plainWall below)
 const jobCentre = new THREE.Box3(); parts.forEach(x => jobCentre.union(x.box));
 const JC = jobCentre.getCenter(new THREE.Vector3());
-const walls = hardware.filter(h => h.p.k === 'wall');
+const walls = hardware.filter(h => WALLK(h.p.k));
+// ---- LED strips and CV's lights: a soft warm glow, about 3000 K ----
+// CV draws an LED strip as a tube a few mm across: it gets a glowing bar you can see from across the room, and the
+// strips close together share one dim point light (8 at most: every light costs the tablet on every pixel)
+const BLACK = new THREE.Color(0), LED_COLOR = 0xffb46b, LED_LEVEL = 0.6;
+const leds = hardware.filter(h => h.p.k === 'hw' && /userlight|\bled\b|strip ?light|downlight/i.test((h.p.n || '') + ' ' + (h.p.c || '')));
+const ledLights = []; let showLights = true;
+for (const h of leds){
+  for (const m of h.meshes){ m.material.userData.lit = new THREE.Color(LED_COLOR).multiplyScalar(0.8); m.material.emissive.copy(m.material.userData.lit); m.castShadow = false; }
+  const sz = h.box.getSize(new THREE.Vector3());
+  h.glow = new THREE.Mesh(new THREE.BoxGeometry(Math.max(sz.x, 7), Math.max(sz.y, 7), Math.max(sz.z, 7)),
+    new THREE.MeshBasicMaterial({color: 0xffd9ad, transparent: true, opacity: 0.9, depthWrite: false}));
+  h.glow.position.copy(h.box.getCenter(new THREE.Vector3())); h.glow.renderOrder = 3; scene.add(h.glow);
+}
+{
+  const groups = [];
+  for (const h of leds){
+    const c = h.box.getCenter(new THREE.Vector3()), len = Math.max(...h.box.getSize(new THREE.Vector3()).toArray());
+    const gr = groups.find(q => q.c.distanceTo(c) < 700);
+    if (gr){ gr.strips.push(h); gr.len += len; gr.c.lerp(c, 1 / gr.strips.length); } else groups.push({c, strips: [h], len});
+  }
+  groups.sort((a, b) => b.len - a.len);
+  groups.forEach((gr, i) => {
+    if (i < 8){ const L = new THREE.PointLight(LED_COLOR, LED_LEVEL, 1700, 2); L.position.copy(gr.c).add(new THREE.Vector3(0, -40, 0)); scene.add(L); ledLights.push({light: L, strips: gr.strips}); }
+    else ledLights[ledLights.length - 1].strips.push(...gr.strips);      // (the rest follow the last light's on / off)
+  });
+}
 { // the overhead light covers the whole room: shadows under overheads and benchtops, and on the floor
   const all = jobCentre.clone(); hardware.forEach(h => all.union(h.box));
   const size = all.getSize(new THREE.Vector3()), r = Math.max(size.x, size.z) * 0.62 + 300;
@@ -718,13 +815,96 @@ const walls = hardware.filter(h => h.p.k === 'wall');
   sun.position.copy(sun.target.position).add(new THREE.Vector3(0.22, 1, 0.3).normalize().multiplyScalar(size.y + r * 2));
   const sc = sun.shadow.camera; sc.left = sc.bottom = -r; sc.right = sc.top = r; sc.near = 10; sc.far = size.y + r * 4; sc.updateProjectionMatrix();
 }
+// walls and ceilings keep CV's finish when it has a picture (brick, tile, render, a paint swatch);
+// plain CV colours (its default greys and whites) become one soft off-white
+{ // the overhead light covers the whole room: shadows under overheads and benchtops, and on the floor
+  const all = jobCentre.clone(); hardware.forEach(h => all.union(h.box));
+  const size = all.getSize(new THREE.Vector3()), r = Math.max(size.x, size.z) * 0.62 + 300;
+  sun.target.position.copy(all.getCenter(new THREE.Vector3())).setY(all.min.y);
+  sun.position.copy(sun.target.position).add(new THREE.Vector3(0.22, 1, 0.3).normalize().multiplyScalar(size.y + r * 2));
+  const sc = sun.shadow.camera; sc.left = sc.bottom = -r; sc.right = sc.top = r; sc.near = 10; sc.far = size.y + r * 4; sc.updateProjectionMatrix();
+}
+// walls and ceilings keep CV's finish when it has a picture (brick, tile, render, a paint swatch);
+// plain CV colours (its default greys and whites) become one soft off-white (as Part Finder)
+const plainWall = m => !(MATS[m.userData.mi] && MATS[m.userData.mi].t);
 for (const w of walls){
   const s = w.box.getSize(new THREE.Vector3()), c = w.box.getCenter(new THREE.Vector3());
+  for (const m of w.meshes) if (plainWall(m)){ m.material.map = null; m.material.color.set(0xe4e1db); m.material.userData.base = m.material.color.clone(); m.material.needsUpdate = true; }
+  if (w.p.k === 'ceiling'){                               // faces down into the room: from above you see through it
+    for (const m of w.meshes) if (plainWall(m)){ m.material.color.set(0xf1efea); m.material.userData.base = m.material.color.clone(); }
+    w.inward = new THREE.Vector3(0, -1, 0); w.face = c.clone().setY(w.box.min.y); w.fade = 1; continue;
+  }
   const n = s.x < s.z ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1);
   if (n.dot(JC.clone().sub(c)) < 0) n.negate();          // points into the room
   w.inward = n; w.face = c.clone().addScaledVector(n, Math.min(s.x, s.z) / 2); w.fade = 1;
 }
+// ---- mirrors reflect the room ----
+// A mirror shows the room in front of it: once the finishes are in, one small 360-degree picture of the room is taken
+// from in front of the mirrors (the mirrors themselves hidden) and used as their reflection. (A true flat-mirror
+// reflection would redraw the whole room every frame for every mirror - too much for a phone.)
+const mirrorObjs = parts.filter(x => x.meshes.some(m => m.material.userData.mirror));
+let mirrorRT = null, mirrorCam = null, mirrorDue = 0; const mirrorN = new THREE.Vector3();
+if (mirrorObjs.length && !(typeof LITE !== 'undefined' && LITE)){
+  mirrorRT = new THREE.WebGLCubeRenderTarget(256, {format: THREE.RGBAFormat, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter});
+  mirrorRT.texture.encoding = THREE.sRGBEncoding;
+  mirrorCam = new THREE.CubeCamera(20, 70000, mirrorRT); scene.add(mirrorCam);
+  const c = new THREE.Vector3(), nrm = new THREE.Vector3();
+  for (const x of mirrorObjs){
+    const s = x.box.getSize(new THREE.Vector3()), mc = x.box.getCenter(new THREE.Vector3());
+    const t = s.x <= s.y && s.x <= s.z ? 0 : s.y <= s.z ? 1 : 2;           // the mirror's thin direction
+    const cab = new THREE.Box3(); parts.forEach(p => { if (p.p.g === x.p.g && p !== x) cab.union(p.box); });
+    const out = cab.isEmpty() ? JC.getComponent(t) - mc.getComponent(t) : mc.getComponent(t) - cab.getCenter(new THREE.Vector3()).getComponent(t);
+    c.add(mc); nrm.add(new THREE.Vector3().setComponent(t, Math.sign(out) || 1));   // (faces away from its cabinet)
+  }
+  c.divideScalar(mirrorObjs.length); if (nrm.lengthSq() < 1e-6) nrm.set(0, 0, 1); nrm.normalize();
+  mirrorCam.position.copy(c).addScaledVector(nrm, 450);
+  mirrorN.copy(nrm);
+  for (const x of mirrorObjs) for (const m of x.meshes) if (m.material.userData.mirror){
+    m.material.envMap = mirrorRT.texture; m.material.envMapIntensity = 1.2; m.material.needsUpdate = true; }
+}
+// what the mirror sees beyond the drawn walls (a job only has the walls the joinery is on): a soft studio - bright
+// above, a pale horizon, a cool grey floor, and a few tall softbox panels - so the glass reads as polished silver with
+// light bands across it, rather than a flat grey card
+let mirrorDome = null, mirrorDone = false;
+function mirrorBackdrop(){
+  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 512;
+  const x = cv.getContext('2d'), sky = x.createLinearGradient(0, 0, 0, 512);
+  sky.addColorStop(0, '#ffffff'); sky.addColorStop(0.42, '#eef1f4'); sky.addColorStop(0.5, '#dde2e6');
+  sky.addColorStop(0.58, '#c4cbd1'); sky.addColorStop(1, '#8e979f');
+  x.fillStyle = sky; x.fillRect(0, 0, 1024, 512);
+  for (const [u, w] of [[0.06, 70], [0.2, 34], [0.31, 90], [0.47, 40], [0.58, 76], [0.72, 30], [0.83, 96], [0.95, 44]]){
+    const cx = u * 1024, g = x.createLinearGradient(cx - w, 0, cx + w, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.35, 'rgba(255,255,255,.9)'); g.addColorStop(0.65, 'rgba(255,255,255,.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.fillRect(cx - w, 60, w * 2, 330);
+    x.fillStyle = 'rgba(60,68,76,.3)'; x.fillRect(cx + w * 0.9, 60, 8, 330);          // (a soft dark edge beside each panel)
+  }
+  const t = new THREE.CanvasTexture(cv); t.encoding = THREE.sRGBEncoding;
+  const d = new THREE.Mesh(new THREE.SphereGeometry(30000, 48, 24), new THREE.MeshBasicMaterial({map: t, side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false}));
+  d.visible = false; d.renderOrder = -1; return d;
+}
+function captureMirrors(){
+  if (!mirrorCam) return;
+  if (!mirrorDome){ mirrorDome = mirrorBackdrop(); scene.add(mirrorDome); }
+  mirrorDome.position.copy(mirrorCam.position); mirrorDome.visible = true;
+  const hid = [], op = [];
+  for (const x of mirrorObjs) for (const o of x.meshes.concat(x.edges)) if (o.visible){ o.visible = false; hid.push(o); }
+  for (const w of walls){
+    // the ceiling and the wall the mirrors face: studio light instead (a plain painted wall in a mirror reads as a grey card)
+    if (w.p.k === 'ceiling' || (w.inward && w.inward.dot(mirrorN) < -0.7)){ for (const o of w.meshes) if (o.visible){ o.visible = false; hid.push(o); } continue; }
+    for (const m of w.meshes){ op.push([m.material, m.material.opacity]); m.material.opacity = 1; }                   // (walls seen whole)
+  }
+  try { mirrorCam.update(renderer, scene); mirrorDone = true; } catch (e) { console.warn('mirror', e); }
+  hid.forEach(o => { o.visible = true; }); op.forEach(([m, o]) => { m.opacity = o; });
+  mirrorDome.visible = false;
+  markDirty();
+}
+// (taken on the next frame after the wait - the drawing loop, not a timer: a phone busy loading can hold timers back)
+const mirrorSoon = ms => { if (mirrorCam) mirrorDue = performance.now() + ms; };
+window.__mirrorSoon = mirrorSoon;           // (each finish picture that arrives asks for a fresh one)
+mirrorSoon(900);
+window.__mirrors = () => mirrorCam ? mirrorObjs.length + (mirrorDone ? ' taken' : ' waiting') : 0;   // (tests)
 function wallStep(){
+  if (mirrorDue && performance.now() >= mirrorDue){ mirrorDue = 0; captureMirrors(); }
   for (const w of walls){
     const behind = camera.position.clone().sub(w.face).dot(w.inward) < 0;
     const want = behind ? 0.08 : 1;
@@ -879,7 +1059,7 @@ function setLook(x, opacity, edgeColor, edgeOpacity, tint){
     const mat = m.material;
     mat.opacity = opacity; mat.depthWrite = opacity > .9;
     mat.color.copy(mat.userData.base);
-    mat.emissive.copy(tint || new THREE.Color(0)); mat.userData.glow = !!tint;
+    mat.emissive.copy(tint || mat.userData.lit || BLACK); mat.userData.glow = !!tint;      // (an LED strip keeps its glow)
     m.renderOrder = opacity > .9 ? 2 : 1;
   }
   for (const e of x.edges){ e.material.color.copy(edgeColor); e.material.opacity = edgeOpacity; e.material.visible = edgeOpacity > 0; }
@@ -896,7 +1076,7 @@ function paint(){
       else if (isoSolid) setLook(x, 1, edge, 0);
       else setLook(x, .18, edge, .85);
     }
-    for (const h of hardware) if (h.p.k !== 'wall') isoSolid ? setLook(h, 1, edge, 0) : setLook(h, .15, edge, .6);
+    for (const h of hardware) if (!WALLK(h.p.k)) isoSolid ? setLook(h, 1, edge, 0) : setLook(h, .15, edge, .6);
     return;
   }
   for (const x of parts){
@@ -908,7 +1088,7 @@ function paint(){
     else setLook(x, .06, ghost, .08);
   }
   for (const h of hardware){
-    if (h.p.k === 'wall'){ for (const m of h.meshes) m.material.opacity = h.fade; continue; }
+    if (WALLK(h.p.k)){ for (const m of h.meshes) m.material.opacity = h.fade; continue; }
     const near = sel && h.p.g === sel.p.g;
     if (solid) setLook(h, 1, edge, 0);
     else setLook(h, !sel ? 1 : near ? .3 : .05, edge, !sel ? .35 : near ? .4 : .05);
@@ -989,6 +1169,7 @@ function finishSwatch(v){                        // css background for a choice
 // one mesh to a finish choice: '' (CV's own), 'tex:<material>', 'lib:<library entry>', 'grain:light|dark', '#rrggbb'
 function finishMesh(m, choice){
   const mat = m.material, ud = mat.userData;
+  if (ud.mirror) return;                          // (a mirror stays a mirror whatever its CV finish is changed to)
   if (!ud.orig) ud.orig = {map: mat.map, base: ud.base.clone()};
   const src = MATS[m.userData.mi], srcS = src && src.t ? src.s : [24, 24];
   if (!choice){ mat.map = ud.orig.map; ud.base.copy(ud.orig.base); }
@@ -1132,8 +1313,8 @@ function applyVisibility(){
     const isHw = !parts.includes(x);
     const k = isHw ? (x.p.k || (x.p.g < 0 ? 'room' : 'hw')) : null;
     let on;
-    if (iso !== null) on = isoGs.has(x.p.g) && k !== 'wall' && k !== 'room';
-    else if (k === 'wall') on = !hideWalls;
+    if (iso !== null) on = isoGs.has(x.p.g) && !WALLK(k) && k !== 'room';
+    else if (WALLK(k)) on = !hideWalls;
     else if (k === 'room') on = !hideRoom;
     else if (k === 'panel' && x.p.g < 0) on = !hiddenTypes.has('panel');
     else on = !hiddenTypes.has(typeOf(x.p.g)) && !(k === 'hw' && hideHardware);
@@ -1141,7 +1322,10 @@ function applyVisibility(){
     if (x.p.cut) on = false;                       // a sink cabinet's top under the sink (left out of the preview)
     if (x.removed) on = false;                     // left out by the set-up
     for (const ob of x.meshes.concat(x.edges)) ob.visible = on && !(isSheet(ob.userData.mi) && hiddenMats.has(matName(ob.userData.mi)));
+    if (x.glow) x.glow.visible = on && showLights;
   }
+  // (a light that is off goes to zero rather than away: the shaders keep their light count, no stall while they rebuild)
+  for (const L of ledLights) L.light.intensity = showLights && L.strips.some(h => h.glow.visible) ? LED_LEVEL : 0;
   updateLabels();
   if (SETUP) setupSave();
 }
@@ -1463,7 +1647,7 @@ function pick(e){
   const r = renderer.domElement.getBoundingClientRect();
   ray.setFromCamera({x:(e.clientX - r.left) / r.width * 2 - 1, y:-(e.clientY - r.top) / r.height * 2 + 1}, camera);
   // walls, floor, windows and room doors are never tapped: taps go straight through them to the cabinets
-  const all = parts.concat(hardware.filter(h => h.p.k !== 'wall' && h.p.k !== 'room'));
+  const all = parts.concat(hardware.filter(h => !WALLK(h.p.k) && h.p.k !== 'room'));
   const hit = ray.intersectObjects(all.flatMap(x => x.meshes.filter(m => m.visible)))[0];
   return hit ? all.find(q => q.meshes.includes(hit.object)) : null;
 }
@@ -1637,7 +1821,7 @@ new MutationObserver(paint).observe(document.documentElement, {attributes:true, 
 // way the doors face (or, with none, which side of each cabinet faces the room) give the start point and the stops.
 const EYE = 1600, STEP_SPEED = 1400;            // mm above the floor; mm per second when walking
 const FOCUS_MIN = 1200;                          // walking orbits a point at least this far ahead: what you're looking at
-const roomItems = hardware.filter(h => h.p.k === 'room' || h.p.k === 'wall');
+const roomItems = hardware.filter(h => h.p.k === 'room' || WALLK(h.p.k));
 const floorY = (() => {
   const floors = hardware.filter(h => h.p.k === 'room').map(h => h.box).filter(b => b.max.y - b.min.y < 120 && (b.max.x - b.min.x) * (b.max.z - b.min.z) > 1e6);
   if (floors.length) return floors.map(b => b.max.y).sort((a, b) => a - b)[Math.floor(floors.length / 2)];
@@ -2560,7 +2744,7 @@ function drawAO(){
 // they are rebuilt once things are still again.
 const BATCH_LAYER = 5, NOBATCH = /[?&]nobatch\b/.test(location.search);
 let batches = [], batchMembers = [], batchWanted = 0, batchStable = 0, batchLastSig = '', batchPartial = false;
-const batchObjs = () => parts.concat(hardware).filter(x => !(x.p && x.p.k === 'wall'));
+const batchObjs = () => parts.concat(hardware).filter(x => !(x.p && WALLK(x.p.k)) && !x.glow && !x.meshes.some(m => m.material.userData.mirror));
 function meshKey(m){
   const t = m.material;
   if (!m.visible || !t || !t.visible || t.opacity < 0.999 || !t.depthWrite || t.wireframe || !m.parent) return null;
