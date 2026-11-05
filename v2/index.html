@@ -215,6 +215,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:1
 .rvhead h2{margin:0;font-size:19px;line-height:1.1;flex:1;min-width:0}
 .rvhead h2 small{display:block;font:500 12px var(--display);color:var(--muted);letter-spacing:.04em;margin-top:3px}
 .rvgrab{display:none}
+.rvtuck{display:none}
 .rvtabs{display:flex;gap:4px;padding:8px 12px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
 .rvtabs button{flex:1 0 auto;font:600 14px var(--display);padding:8px 12px;border-radius:999px;border:0;background:transparent;color:var(--muted);cursor:pointer;min-height:40px}
 .rvtabs button[aria-selected="true"]{background:var(--brand);color:#fff}
@@ -324,7 +325,19 @@ body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:1
   .rvfoot #cname{display:none}                   /* (phones: the name is asked for when sending) */
   body.rv .card{margin-bottom:var(--rv-min,150px)}
   body.rv #stage{margin-bottom:0}
-  .rvhead{cursor:pointer}
+  .rvhead{cursor:pointer;touch-action:none}
+  .rvgrab{touch-action:none}
+  /* the chevron makes the sheet one step smaller: open -> bar -> tucked away (a slim strip with the progress) */
+  .rvtuck{display:grid;place-items:center;flex:none;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer;padding:0}
+  .rvtuck svg{transition:transform .2s}
+  .review.tuck .rvtabs,.review.tuck .rvbody,.review.tuck .rvfoot{display:none}
+  .review.tuck .rvgrab{margin:6px auto -4px}
+  .review.tuck .rvhead{border-bottom:0;padding:6px 12px calc(6px + env(safe-area-inset-bottom,0px)) 16px}
+  .review.tuck .rvhead h2{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .review.tuck .rvhead h2 small{display:inline;margin:0 0 0 8px}
+  .review.tuck .rvhead h2 small .rm{display:none}
+  .review.tuck .rvtuck{width:34px;height:34px}
+  .review.tuck .rvtuck svg{transform:rotate(180deg)}
 }
 @media (max-width: 640px){
   .strip .cnmark{display:none}
@@ -455,7 +468,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--display);font-size:1
 </div>
 <aside class="review" id="review" hidden aria-label="Your review">
   <div class="rvgrab" aria-hidden="true"></div>
-  <div class="rvhead" id="rvHead"><h2 id="rvTitle">Your review</h2></div>
+  <div class="rvhead" id="rvHead"><h2 id="rvTitle">Your review</h2><button type="button" class="rvtuck" id="rvTuck" aria-label="Make the review panel smaller"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
   <div class="rvtabs" id="rvTabs" role="tablist"><button type="button" role="tab" data-tab="review" aria-selected="true">Review</button><button type="button" role="tab" data-tab="drawings" aria-selected="false">Drawings</button><button type="button" role="tab" data-tab="finishes" aria-selected="false">Finishes</button><button type="button" role="tab" data-tab="changes" aria-selected="false">Changes</button></div>
   <div class="rvbody" id="rvBody" role="tabpanel"></div>
   <div class="rvfoot">
@@ -2654,7 +2667,17 @@ function goTo(it){
 
 // ---- the panel
 const narrow = () => matchMedia('(max-width: 999.98px)').matches;
-function setMin(on){ $('review').classList.toggle('min', on); sizeBar(); }
+// phones: three sizes - open, a bar (progress + Send / Approve), tucked away (a slim strip). setMin(true) from the
+// app (a note placed, a spot shown) keeps a tucked sheet tucked; the client's own choice is kept between rooms.
+const SHEET_KEY = 'cp2-sheet-' + (BOOT.id || '');
+function sheetSize(){ const r = $('review'); return r.classList.contains('tuck') ? 2 : r.classList.contains('min') ? 1 : 0; }
+function setSheet(n, mine){
+  const r = $('review'); r.classList.toggle('min', n >= 1); r.classList.toggle('tuck', n === 2);
+  $('rvTuck').setAttribute('aria-label', n === 2 ? 'Show the review panel' : 'Make the review panel smaller');
+  if (mine) try { sessionStorage.setItem(SHEET_KEY, String(n)); } catch (e) {}
+  sizeBar();
+}
+function setMin(on){ setSheet(on ? Math.max(1, sheetSize()) : 0); }
 // wide screens: the panel starts under the top strip (its buttons stay in reach)
 function placePanel(){
   const top = document.querySelector('.strip').getBoundingClientRect().bottom, nav = $('rooms');
@@ -2665,8 +2688,25 @@ function placePanel(){
   sizeBar();
 }
 addEventListener('resize', placePanel);
-function sizeBar(){ requestAnimationFrame(() => { document.body.style.setProperty('--rv-min', ($('review').classList.contains('min') && narrow() ? $('review').offsetHeight : 0) + 'px'); }); }
-$('rvHead').onclick = e => { if (narrow() && !e.target.closest('a,button:not(#rvHead)')) setMin(!$('review').classList.contains('min')); };
+function sizeBar(){ requestAnimationFrame(() => { document.body.style.setProperty('--rv-min', (sheetSize() && narrow() ? $('review').offsetHeight : 0) + 'px'); }); }
+let sheetSwiped = 0;
+$('rvHead').onclick = e => {
+  if (!narrow() || e.target.closest('a,button:not(#rvHead)') || Date.now() - sheetSwiped < 400) return;
+  setSheet(sheetSize() === 0 ? 1 : 0, true);                      // tap the heading: open <-> bar (tucked: opens)
+};
+$('rvTuck').onclick = e => { e.stopPropagation(); setSheet(sheetSize() === 2 ? 1 : sheetSize() + 1, true); };
+// a swipe down on the heading or the grip makes it smaller, a swipe up bigger
+{
+  let y0 = null;
+  for (const el of [$('rvHead'), document.querySelector('.rvgrab')]){
+    el.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; }, {passive: true});
+    el.addEventListener('touchend', e => {
+      if (y0 === null || !narrow()) return; const dy = e.changedTouches[0].clientY - y0; y0 = null;
+      if (Math.abs(dy) < 30) return;
+      sheetSwiped = Date.now(); setSheet(Math.max(0, Math.min(2, sheetSize() + (dy > 0 ? 1 : -1))), true);
+    }, {passive: true});
+  }
+}
 $('cList').onclick = () => { setMin(false); setTab('review'); };
 function setTab(t){ rvTab = t; for (const b of $('rvTabs').querySelectorAll('button')) b.setAttribute('aria-selected', b.dataset.tab === t); renderBody(); }
 $('rvTabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
@@ -2675,7 +2715,7 @@ function msg(text, err){ $('rvMsg').textContent = text || ''; $('rvMsg').classLi
 
 function renderHead(){
   const total = ROOMS.length * SECTIONS.length, ok = signs.filter(g => g.state === 'ok').length;
-  $('rvTitle').innerHTML = 'Your review<small>' + esc(BOOT.roomName) + ' · ' + (isApproved() ? 'Approved' : ok + ' of ' + total + ' sections ticked') + ' · Rev ' + esc(IX.rev) + '</small>';
+  $('rvTitle').innerHTML = 'Your review<small><span class="rm">' + esc(BOOT.roomName) + ' · </span>' + (isApproved() ? 'Approved' : ok + ' of ' + total + ' ticked') + '<span class="rm"> · Rev ' + esc(IX.rev) + '</span></small>';
   const left = rstate.until - Date.now(), h = Math.floor(left / 3600e3);
   const chip = $('until');
   if (isApproved()){ chip.className = 'chip ok'; chip.textContent = 'Approved ' + fmtDay(rstate.approvedAt || Date.now()); }
@@ -2916,6 +2956,7 @@ addEventListener('keydown', e => { if (!$('docOver').hidden && e.key === 'Escape
 
 $('review').hidden = false; document.body.classList.add('rv');
 setMin(narrow()); renderAll(); placePanel();
+if (narrow()) try { const n = Number(sessionStorage.getItem(SHEET_KEY)); if (n === 2) setSheet(2); } catch (e) {}
 if (rstate.status === 'approved' || rstate.until <= Date.now()) setMin(false);
 
 // a comment's own link: open on its view, with its spot marked
